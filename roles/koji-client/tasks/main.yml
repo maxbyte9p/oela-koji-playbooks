@@ -1,0 +1,54 @@
+# Set up the client for authentication
+
+- name: Install Koji client packages
+  package:
+    name:
+      - koji
+      - krb5-workstation
+    state: present
+
+- name: copy koji client profile configuration
+  copy:
+    src: files/kojidev.conf
+    dest: /etc/koji.conf.d/kojidev.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: symlink "kojidev" alias for this profile
+  file:
+    src: /usr/bin/koji
+    dest: /usr/bin/kojidev
+    state: link
+
+- name: determine unprivileged user
+  set_fact:
+    unprivileged_user: "{{ ansible_user }}"
+  become: false
+
+- name: determine unprivileged passwd info
+  getent:
+    database: passwd
+    key: "{{ unprivileged_user }}"
+
+- name: determine unprivileged uid number
+  set_fact:
+    unprivileged_uid: "{{ getent_passwd[unprivileged_user][1] }}"
+
+- name: "create directory /var/kerberos/krb5/user/{{ unprivileged_uid }}"
+  file:
+    path: "/var/kerberos/krb5/user/{{ unprivileged_uid }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ unprivileged_user }}"
+
+- name: symlink kdreyer.keytab for unprivileged user
+  file:
+    src: /var/local/kdreyer.keytab
+    dest: "/var/kerberos/krb5/user/{{ unprivileged_uid }}/client.keytab"
+    state: link
+
+- name: make keytab readable by unprivileged user
+  file:
+    path: /var/local/kdreyer.keytab
+    owner: "{{ unprivileged_user }}"

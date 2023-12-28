@@ -1,0 +1,96 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: yes
+
+  vars:
+    invoking_user: '{{ ansible_user_id }}'
+    invoking_user_home: '{{ ansible_user_dir }}'
+
+    hashicorp_repo: "https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo"
+
+    enable_repos:
+      - crb
+
+    required_pkgs:
+      - vagrant
+      - gcc
+      - make
+      - perl
+      - kernel-devel
+      - kernel-headers
+      - bzip2
+      - dkms
+      - elfutils-libelf-devel
+      - libvirt-devel
+      
+    required_groups:
+      - "@Virtualization Host"
+      - "@Virtualization Platform"
+      - "@Development Tools"
+
+    cs8_box: https://cloud.centos.org/centos/8-stream/x86_64/images/CentOS-Stream-Vagrant-8-20230925.0.x86_64.vagrant-libvirt.box
+
+  tasks:
+    - name: Add hashicorp repo.
+      become: yes
+      get_url:
+        url: '{{ hashicorp_repo }}'
+        dest: /etc/yum.repos.d/hashicorp.repo
+        mode: '0644'
+
+    - name: Enable CRB repo.
+      become: yes
+      command: 'dnf config-manager --set-enabled crb'
+
+    - name: Install required pkgs.
+      become: yes
+      dnf:
+        name: '{{ required_pkgs }}'
+        state: present
+
+    - name: Install required groups.
+      become: yes
+      dnf:
+        name: '{{ required_groups }}'
+        state: present
+
+    - name: Enable libvirtd.
+      become: yes
+      service:
+        name: libvirtd
+        enabled: yes
+        state: started
+
+    - name: Add invoking user to libvirt group.
+      become: yes
+      user:
+        name: '{{ invoking_user }}'
+        groups: libvirt
+        append: yes
+
+    - name: Get vagrant plugin list.
+      become_user: '{{ invoking_user }}'
+      command: 'vagrant plugin list'
+      changed_when: false
+      register: vagrant_plugin_list
+
+    - name: Install vagrant-libvirt plugin.
+      become_user: '{{ invoking_user }}'
+      command: 'vagrant plugin install vagrant-libvirt'
+      when: "'vagrant-libvirt' not in vagrant_plugin_list.stdout"
+
+    - name: Install CentOS Stream 8 box.
+      become_user: '{{ invoking_user }}'
+      command: "vagrant box add --name centos/stream8 -f {{ cs8_box }}"
+      args:
+        creates: '{{ invoking_user_home }}/.vagrant.d/boxes/centos-VAGRANTSLASH-stream8'
+
+    - name: Run clone-koji-ansible.
+      become_user: '{{ invoking_user }}'
+      command: "{{ playbook_dir }}/clone-koji-ansible"
+      args:
+        chdir: '{{ playbook_dir }}'
+        creates: '{{ playbook_dir }}/koji-ansible'
+
+

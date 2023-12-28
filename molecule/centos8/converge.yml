@@ -1,0 +1,25 @@
+---
+- name: Converge
+  hosts: all
+  # Note, "become: no" does not work in Ansible 2.9's podman connection plugin.
+  # See https://github.com/ansible/ansible/pull/70541
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Add EPEL yum repository
+      yum_repository:
+        name: epel
+        description: epel
+        metalink: https://mirrors.fedoraproject.org/metalink?repo=epel-8&arch=$basearch
+        gpgcheck: true
+        gpgkey: https://archive.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-8
+  roles:
+    - kdc
+    - koji-ssl-admin
+    - koji-client
+    - postgresql
+    - koji-hub
+    - koji-web
+    - koji-builder
+    - koji-ra
+    - koji-gc

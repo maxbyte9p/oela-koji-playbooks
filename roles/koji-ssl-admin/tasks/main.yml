@@ -1,0 +1,58 @@
+- name: Gather OS-specific variables
+  include_vars: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_distribution }}-{{ ansible_distribution_major_version }}.yml"
+    - "{{ ansible_distribution }}.yml"
+
+- name: install prerequisites
+  package:
+    name: "{{ ssl_admin_prerequisites }}"
+    state: present
+
+- name: clone koji-tools.git (rhel 7 compatible) # noqa latest[git]
+  git:
+    repo: https://pagure.io/koji-tools.git
+    dest: /usr/local/koji-tools
+    # RHEL 7 has Git v1.8.3.1, so it cannot do shallow clones with "depth: 1"
+  when: ansible_os_family == "RedHat" and ansible_distribution_major_version|int == 7
+
+- name: clone koji-tools.git  # noqa latest[git]
+  git:
+    repo: https://pagure.io/koji-tools.git
+    dest: /usr/local/koji-tools
+    depth: 1
+  when: ansible_os_family == "RedHat" and ansible_distribution_major_version|int > 7
+
+- name: /etc/pki/koji directory
+  file:
+    path: /etc/pki/koji
+    state: directory
+    mode: "0755"
+
+- name: Create a Koji SSL CA
+  command:
+    argv:
+      - /usr/local/koji-tools/src/bin/koji-ssl-admin
+      - new-ca
+      - --common-name
+      - Test Koji CA
+    creates: /etc/pki/koji/koji-ca.crt
+    chdir: /etc/pki/koji/
+
+- name: Create a Server CSR
+  command:
+    argv:
+      - /usr/local/koji-tools/src/bin/koji-ssl-admin
+      - server-csr
+      - kojidev.example.com
+    creates: /etc/pki/koji/kojidev.example.com.csr
+    chdir: /etc/pki/koji/
+
+- name: Sign Server CSR
+  command:
+    argv:
+      - /usr/local/koji-tools/src/bin/koji-ssl-admin
+      - sign
+      - kojidev.example.com.csr
+    creates: /etc/pki/koji/kojidev.example.com.chain.crt
+    chdir: /etc/pki/koji/

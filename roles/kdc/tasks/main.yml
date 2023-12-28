@@ -1,0 +1,87 @@
+- name: configure FQDN in /etc/hosts
+  copy:
+    dest: '/etc/hosts'
+    content: |
+      127.0.0.1   localhost
+      ::1         localhost
+      127.0.0.1   kojidev.example.com
+    mode: "0644"
+  when:
+    - ansible_virtualization_type | default('') not in ['docker', 'podman', 'container', 'containerd']
+    # Docker, Podman, and containerd will mount /etc/hosts as RO tmpfs.
+    - ansible_mounts | selectattr('mount', 'equalto', '/etc/hosts') | list | length == 0
+
+- name: Install Kerberos packages
+  package:
+    name:
+      - krb5-server
+      - krb5-workstation
+    state: present
+
+- name: copy /etc/krb5.conf
+  copy:
+    src: files/krb5.conf
+    dest: /etc/krb5.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - restart krb5kdc
+
+- name: copy /var/kerberos/krb5kdc/kdc.conf
+  copy:
+    src: files/kdc.conf
+    dest: /var/kerberos/krb5kdc/kdc.conf
+    owner: root
+    group: root
+    mode: "0600"
+  notify:
+    - restart krb5kdc
+
+- name: configure /var/kerberos/krb5kdc/kadm5.acl
+  copy:
+    dest: /var/kerberos/krb5kdc/kadm5.acl
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      */admin@KOJIDEV.EXAMPLE.COM *
+  notify:
+    - restart krb5kdc
+
+- name: initialize KDC DB
+  command: /usr/sbin/kdb5_util create -s -P test
+  args:
+    creates: /var/kerberos/krb5kdc/principal.ok
+  notify:
+    - restart krb5kdc
+
+- name: start krb5kdc
+  service:
+    name: krb5kdc
+    enabled: true
+    state: started
+
+- name: start kadmin
+  service:
+    name: kadmin
+    enabled: true
+    state: started
+
+- name: Create Kerberos principals
+  krb_principal:
+    name: "{{ item }}"
+    keytab: "/var/local/{{ item | replace ('/', '.') }}.keytab"
+  with_items:
+    - kdreyer
+    - rcm/debbuild
+    - HTTP/kojidev.example.com
+    - compile/kojidev.example.com
+    - koji/kojiweb
+    - koji/kojira
+    - koji/garbagecollector
+  tags:
+    - krb_account
+
+- name: set up kdcproxy
+  include_tasks: kdcproxy.yml

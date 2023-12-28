@@ -1,0 +1,213 @@
+- name: Gather OS-specific variables
+  include_vars: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_distribution }}-{{ ansible_distribution_major_version }}.yml"
+    - "{{ ansible_distribution }}.yml"
+
+- name: Install SELinux packages
+  package:
+    name: "{{ selinux_packages }}"
+    state: present
+  register: selinux_packages_installed
+
+- name: re-gather facts after installing SELinux packages
+  setup:
+  when:
+    - not ansible_selinux_python_present
+    - selinux_packages_installed.changed
+
+- name: Install Koji packages
+  package:
+    name:
+      - koji-hub
+      - mod_ssl
+      - mod_auth_gssapi
+    state: present
+
+- name: allow httpd selinux access to write public_content_rw_t files
+  seboolean:
+    name: httpd_anon_write
+    state: true
+    persistent: true
+  when:
+    - ansible_selinux.status != "disabled"
+  notify:
+    - restart httpd
+
+- name: create koji user
+  user:
+    name: koji
+    shell: /bin/bash
+
+- name: create postgres user koji
+  postgresql_user:
+    name: koji
+    password: test
+    # priv: "CONNECT/koji:ALL"
+    # login_unix_socket: /var/run/postgresql
+  become_user: postgres
+
+- name: create postgres koji database
+  postgresql_db:
+    name: koji
+    owner: koji
+    # login_unix_socket: /var/run/postgresql
+  become_user: postgres
+
+- name: check if database for app needs populating
+  postgresql_query:
+    db: koji
+    login_user: koji
+    query: SELECT COUNT(*) FROM permissions;
+  become_user: koji
+  ignore_errors: true
+  register: database_is_populated
+
+- name: populate the koji database
+  shell: psql koji koji < /usr/share/doc/koji*/docs/schema.sql
+  args:
+    executable: /bin/bash
+  when: database_is_populated.failed
+  changed_when: true
+  become_user: koji
+
+- name: insert kdreyer as a user
+  postgresql_query:
+    db: koji
+    login_user: koji
+    query: "INSERT INTO users (name, status, usertype) VALUES ('kdreyer', 0, 0);"
+  when: database_is_populated.failed
+  become_user: koji
+
+- name: grant kdreyer admin rights
+  postgresql_query:
+    db: koji
+    login_user: koji
+    query: "INSERT INTO user_perms (user_id, perm_id, creator_id) VALUES (1, 1, 1);"
+  when: database_is_populated.failed
+  become_user: koji
+
+- name: grant apache selinux access to HTTP keytab
+  sefcontext:
+    target: /var/local/HTTP.kojidev.example.com.keytab
+    setype: httpd_config_t
+    state: present
+  when:
+    - ansible_selinux.status != "disabled"
+  notify:
+    - restart httpd
+
+- name: grant apache read access to HTTP keytab
+  file:
+    path: /var/local/HTTP.kojidev.example.com.keytab
+    owner: root
+    group: apache
+    mode: "0640"
+    setype: httpd_config_t
+  notify:
+    - restart httpd
+
+- name: copy mod_ssl config
+  copy:
+    src: files/ssl.conf
+    dest: /etc/httpd/conf.d/ssl.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - restart httpd
+
+- name: copy /etc/httpd/conf.d/kojihub.conf
+  copy:
+    src: files/kojihub.conf
+    dest: /etc/httpd/conf.d/kojihub.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - restart httpd
+
+- name: copy /etc/koji-hub/hub.conf
+  copy:
+    src: files/hub.conf
+    dest: /etc/koji-hub/hub.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - restart httpd
+
+- name: start httpd
+  service:
+    name: httpd
+    enabled: true
+    state: started
+
+- name: grant apache selinux access to /mnt/koji
+  sefcontext:
+    target: "/mnt/koji(/.*)?"
+    setype: public_content_rw_t
+    state: present
+  when:
+    - ansible_selinux.status != "disabled"
+
+- name: /mnt/koji directories
+  file:
+    path: /mnt/koji/{{ item }}
+    state: directory
+    mode: "0755"
+    owner: apache
+    group: apache
+    setype: public_content_rw_t
+  with_items:
+    -
+    - packages
+    - repos
+    - work
+    - scratch
+    - repos-dist
+
+- name: link our Koji CA to a public web-accessible location
+  file:
+    src: /etc/pki/koji/koji-ca.crt
+    dest: /mnt/koji/koji-ca.crt
+    state: link
+
+- name: Configure the new builder on the hub
+  koji_host:
+    koji: kojidev
+    name: kojidev.example.com
+    arches: [x86_64]
+    state: enabled
+    channels:
+      - default
+      - createrepo
+  become: false
+
+- name: Configure the kojira user account
+  koji_user:
+    koji: kojidev
+    name: kojira
+    state: enabled
+    permissions:
+      - repo
+    krb_principals:
+      - koji/kojira@KOJIDEV.EXAMPLE.COM
+  become: false
+
+- name: Configure the garbagecollector user account
+  koji_user:
+    koji: kojidev
+    name: garbagecollector
+    state: enabled
+    permissions:
+      - admin
+    krb_principals:
+      - koji/garbagecollector@KOJIDEV.EXAMPLE.COM
+  become: false
+
+- name: trashcan tag
+  koji_tag:
+    koji: kojidev
+    name: trashcan
+  become: false

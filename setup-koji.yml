@@ -1,0 +1,14 @@
+- name: manage Koji VM
+  hosts: all
+  become: yes
+  become_method: sudo
+  roles:
+  - kdc
+  - koji-ssl-admin
+  - koji-client
+  - postgresql
+  - koji-hub
+  - koji-web
+  - koji-builder
+  - koji-ra
+  - koji-gc

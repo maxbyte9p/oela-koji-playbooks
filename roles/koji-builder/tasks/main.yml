@@ -1,0 +1,55 @@
+- name: Add yum repository to work around rhbz1661580
+  yum_repository:
+    name: bz1661580
+    description: work around rhbz1661580
+    baseurl: https://fedorapeople.org/~ktdreyer/bz1661580/
+    gpgcheck: false
+  when: ansible_os_family == "RedHat" and ansible_distribution_major_version|int == 7
+
+- name: Install the very latest requests-kerberos (rhbz1661580)
+  package:
+    name:
+      - python-requests-kerberos
+      - python2-kerberos
+    state: latest  # noqa package-latest
+  when: ansible_os_family == "RedHat" and ansible_distribution_major_version|int == 7
+  retries: 100
+  delay: 3
+
+- name: Install Koji builder packages
+  package:
+    name: koji-builder
+    state: present
+
+- name: copy /etc/kojid/kojid.conf
+  copy:
+    src: files/kojid.conf
+    dest: /etc/kojid/kojid.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - restart kojid
+
+# Because we have "topurl=https://..." in kojid.conf, we must trust this CA
+# system-wide because we query this URL with urllib2.
+
+- name: link our Koji CA to the system-wide location
+  file:
+    src: /etc/pki/koji/koji-ca.crt
+    dest: /etc/pki/ca-trust/source/anchors/koji-ca.crt
+    state: link
+  register: koji_ca_anchor
+
+- name: trust our new Koji CA system-wide  # noqa no-handler
+  command: update-ca-trust extract
+  when: koji_ca_anchor.changed
+  changed_when: true
+  notify:
+    - restart kojid
+
+- name: start kojid
+  service:
+    name: kojid
+    enabled: true
+    state: started

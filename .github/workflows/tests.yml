@@ -1,0 +1,61 @@
+name: tests
+
+on: [push, pull_request]
+
+jobs:
+  syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Clone koji-ansible
+      run: ./clone-koji-ansible
+    - name: Install ansible
+      run: |
+        sudo apt-get update
+        sudo apt-get purge ansible
+        sudo apt-get install python3-setuptools
+        pip3 install ansible --user
+    - name: ansible-playbook syntax check
+      run: |
+        export PATH=$PATH:$HOME/.local/bin
+        ansible-playbook -i localhost, setup-koji.yml --syntax-check
+  ansible-lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Clone koji-ansible
+      run: ./clone-koji-ansible
+    - name: Install ansible-lint
+      run: |
+        sudo apt-get update
+        sudo apt-get purge ansible
+        sudo apt-get install python3-setuptools
+        pip3 install ansible-lint[core] --user
+    - name: Run ansible-lint
+      run: |
+        export PATH=$PATH:$HOME/.local/bin
+        ansible-galaxy collection install -r requirements.yml
+        ANSIBLE_LIBRARY=library ansible-lint -v roles/*
+  molecule:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - name: Clone koji-ansible
+      run: ./clone-koji-ansible
+    - name: Install podman and molecule
+      run: |
+        . /etc/os-release
+        curl -sS https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/Release.key | gpg --dearmor | sudo dd of=/etc/apt/trusted.gpg.d/podman.gpg
+        echo "deb [signed-by=/etc/apt/trusted.gpg.d/podman.gpg] https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/ /" | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
+        sudo apt-get update
+        sudo apt-get purge ansible
+        sudo apt-get install podman python3-setuptools
+        sudo mkdir -p /etc/containers
+        echo 'cgroup_manager="cgroupfs"' | sudo tee /etc/containers/libpod.conf
+        pip3 install molecule molecule-plugins[podman] --user
+    - name: Run molecule
+      run: |
+        export PATH=$PATH:$HOME/.local/bin
+        export ANSIBLE_MODULE_UTILS=$(pwd)/module_utils
+        export ANSIBLE_LIBRARY=$(pwd)/library
+        molecule test -s centos8

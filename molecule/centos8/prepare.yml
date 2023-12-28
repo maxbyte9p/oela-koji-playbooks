@@ -1,0 +1,13 @@
+---
+- name: Prepare
+  hosts: all
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Add EPEL yum repository
+      yum_repository:
+        name: epel
+        description: epel
+        metalink: https://mirrors.fedoraproject.org/metalink?repo=epel-8&arch=$basearch
+        gpgcheck: true
+        gpgkey: https://archive.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-8

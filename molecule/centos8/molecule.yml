@@ -1,0 +1,28 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: requirements.yml
+driver:
+  name: podman
+platforms:
+  - name: instance
+    registry:
+      url: quay.io/centos
+    image: centos:stream8
+    privileged: true
+    command: "/usr/sbin/init"
+    tty: True
+    etc_hosts:
+      kojidev.example.com: 127.0.0.1
+    hostname: kojidev.example.com
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      instance:
+        ansible_user: ansible
+        # Silence warnings in Ansible 2.9:
+        ansible_python_interpreter: /usr/bin/python3
+verifier:
+  name: ansible

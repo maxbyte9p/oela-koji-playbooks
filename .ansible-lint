@@ -1,0 +1,8 @@
+---
+skip_list:
+  - fqcn[action-core]
+  - fqcn[action]
+  - jinja
+  - name[casing]
+  - risky-file-permissions
+  - role-name

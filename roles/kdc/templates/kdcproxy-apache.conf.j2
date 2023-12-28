@@ -1,0 +1,15 @@
+WSGIDaemonProcess kdcproxy processes=2 threads=15 maximum-requests=1000 \
+    display-name=%{GROUP}
+WSGIImportScript {{ python_sitelib }}/kdcproxy/__init__.py \
+    process-group=kdcproxy application-group=kdcproxy
+WSGIScriptAlias /KdcProxy {{ python_sitelib }}/kdcproxy/__init__.py
+WSGIScriptReloading Off
+
+<Location "/KdcProxy">
+    Satisfy Any
+    Order Deny,Allow
+    Allow from all
+    WSGIProcessGroup kdcproxy
+    WSGIApplicationGroup kdcproxy
+    SSLRequireSSL
+</Location>

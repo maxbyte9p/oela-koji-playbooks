@@ -1,0 +1,54 @@
+- name: Install Koji web packages
+  package:
+    name: koji-web
+    state: present
+
+- name: copy /etc/httpd/conf.d/kojiweb.conf
+  copy:
+    src: files/kojiweb.conf
+    dest: /etc/httpd/conf.d/kojiweb.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - restart httpd
+
+- name: copy /etc/kojiweb/web.conf
+  copy:
+    src: files/web.conf
+    dest: /etc/kojiweb/web.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - restart httpd
+
+- name: grant apache selinux access to kojiweb keytab
+  sefcontext:
+    target: /var/local/koji.kojiweb.keytab
+    setype: httpd_config_t
+    state: present
+  when:
+    - ansible_selinux.status != "disabled"
+  notify:
+    - restart httpd
+
+- name: grant apache read access to kojiweb keytab
+  file:
+    path: /var/local/koji.kojiweb.keytab
+    owner: root
+    group: apache
+    mode: "0640"
+    setype: httpd_config_t
+  notify:
+    - restart httpd
+
+- name: allow httpd selinux access to contact kerberos and koji-hub
+  seboolean:
+    name: httpd_can_network_connect
+    state: true
+    persistent: true
+  when:
+    - ansible_selinux.status != "disabled"
+  notify:
+    - restart httpd
